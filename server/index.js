@@ -5,7 +5,7 @@ import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
 import {createEngine} from './engine.js';
-const root=fileURLToPath(new URL('../public/',import.meta.url));
+const root=path.resolve(fileURLToPath(new URL('../public/',import.meta.url)));
 const actions=new Set(['left','right','jump','down','light','heavy','skill','super']);
 export function createGameServer(){
  const rooms=new Map();

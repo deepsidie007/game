@@ -23,8 +23,8 @@ try{
  console.log('正在启动游戏服务器…');server=spawn(process.execPath,['server/index.js'],{cwd:root,stdio:['ignore','inherit','inherit'],env:{...process.env,PORT:'3000'}});
  server.on('error',e=>{console.error(e.message);stop();process.exitCode=1;});server.on('exit',()=>{if(!closing){console.error('游戏服务已退出。');stop();process.exitCode=1;}});
  let ready=false;for(let i=0;i<100;i++){if(closing)throw Error('服务器启动失败');try{const r=await fetch('http://127.0.0.1:3000/health');if(r.ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}if(!ready)throw Error('游戏服务启动超时');
- console.log('本机地址：http://localhost:3000');console.log('正在生成公网链接，请稍候…');
+ const page=await fetch('http://127.0.0.1:3000/');if(!page.ok)throw Error('首页无法加载：HTTP '+page.status);console.log('本机地址：http://localhost:3000');console.log('正在生成公网链接，请稍候…');
  tunnel=spawn(exe,['tunnel','--url','http://127.0.0.1:3000','--protocol','http2','--no-autoupdate'],{cwd:root,stdio:['ignore','pipe','pipe']});
  let buffer='',shown=false;const output=chunk=>{const s=chunk.toString();process.stdout.write(s);buffer=(buffer+s).slice(-8000);const match=buffer.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);if(match&&!shown){shown=true;const url=match[0];console.log('\n========== 分享这个链接给朋友 ==========\n'+url+'\n双方都打开此链接，创建 / 加入房间。\n请保持本窗口运行，关闭窗口后链接失效。\n======================================\n');writeFile('分享链接.txt',url+'\r\n关闭启动窗口后链接失效。\r\n').catch(()=>{});spawn('cmd.exe',['/d','/c','start','',url],{stdio:'ignore'});}};
  tunnel.stdout.on('data',output);tunnel.stderr.on('data',output);tunnel.on('error',e=>{console.error('连接程序启动失败：'+e.message);stop();process.exitCode=1;});tunnel.on('exit',()=>{if(!closing){console.error('公网连接已停止，请重新启动。');stop();process.exitCode=1;}});
-}catch(e){console.error('\n启动失败：'+e.message);stop();process.exitCode=1;}
+}catch(e){console.error('\n启动失败：'+e.message+(e.cause?.code?' ['+e.cause.code+']':''));if(e.message==='fetch failed')console.error('无法下载连接程序。请确认 tools 文件夹中有完整的 cloudflared.exe，或使用内置连接程序的完整包。');stop();process.exitCode=1;}
