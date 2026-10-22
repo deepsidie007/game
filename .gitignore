@@ -2,3 +2,8 @@ node_modules/
 .vercel/
 .env*
 *.log
+
+tools/
+public/connection.json
+分享链接.txt
+联机诊断日志.txt
