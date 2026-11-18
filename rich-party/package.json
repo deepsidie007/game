@@ -1,0 +1,21 @@
+{
+  "name": "rich-party-cloudflare",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "1至4人联机大富翁，Cloudflare Workers + SQLite Durable Objects 免费额度版",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run --outdir .check",
+    "test": "node --test tests/*.test.mjs",
+    "pretest": "npm run check"
+  },
+  "devDependencies": {
+    "wrangler": "4.92.0",
+    "miniflare": "4.20260515.0"
+  }
+}
