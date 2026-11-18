@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#081d18"><title>博博乐 · 好友牌局</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><a class="brand" href="/">♠ <span>博博乐<small>BOBOLE · 好友牌局</small></span></a><div class="status" id="status">准备入座</div></header>
+<main>
+<section id="landing">
+ <div class="hero"><div><div class="eyebrow">一张桌，几个朋友，一场好戏</div><h1>今晚，<br>朋友都在这一桌。</h1><p>创建私人房间，把房间码发给朋友。<br>扑克之夜、三张风暴、二十一点、庄闲对决。</p><div class="badges"><span>2–6人同桌</span><span>实时同步</span><span>手机电脑都能玩</span></div></div><div class="hero-cards" aria-hidden="true"><div class="big-card">A<span>♠</span><b>BOBOLE</b></div><div class="big-card red">K<span>♥</span><b>GOOD NIGHT</b></div></div></div>
+ <div class="entry-grid"><form id="createForm" class="panel"><div class="eyebrow">HOST A TABLE</div><h2>开一桌</h2><label>你的昵称<input id="createName" maxlength="16" placeholder="朋友怎么称呼你" required autocomplete="nickname"></label><label>选择玩法<select id="createGame"><option value="zjh">三张风暴 · 炸金花</option><option value="holdem">扑克之夜 · 德州扑克</option><option value="blackjack">二十一点 · 共用庄家</option><option value="baccarat">庄闲对决 · 同桌竞猜</option></select></label><button class="primary" type="submit">创建好友房间 <span>↗</span></button></form>
+ <form id="joinForm" class="panel"><div class="eyebrow">JOIN YOUR FRIENDS</div><h2>朋友在等你</h2><label>你的昵称<input id="joinName" maxlength="16" placeholder="输入昵称" required autocomplete="nickname"></label><label>6位房间码<input id="joinCode" maxlength="6" minlength="6" placeholder="例如 A1B2C3" required autocapitalize="characters"></label><button type="submit">加入房间 <span>→</span></button></form></div>
+ <a class="solo-link" href="/solo">打开原版单机 · 剧情、商店与麻将老虎机 ↗</a>
+</section>
+<section id="room" hidden>
+ <div class="room-top"><div><div class="eyebrow">PRIVATE TABLE · 好友专场</div><h1 id="gameTitle">好友牌局</h1></div><div class="invite"><span>房间码 <b id="roomCode"></b></span><button id="copyInvite" class="small">复制邀请</button><button id="leave" class="small quiet">离开</button></div></div>
+ <div class="room-layout"><div><div class="table-head"><span id="roundInfo">等待开局</span><span id="timer"></span></div><div class="felt"><div class="table-mark">BOBOLE <small>GOOD FRIENDS. GOOD GAME.</small></div><div id="center"></div><div id="players" class="seats"></div></div>
+ <div id="controls" class="panel controls"></div><div id="result" class="result" hidden></div>
+ </div><aside class="panel"><div class="eyebrow">TABLE NOTES</div><h3>这桌怎么玩</h3><p id="rules" class="rules"></p><details><summary>详细规则与结算</summary><p id="details" class="rules"></p></details><div id="switcher"></div><h3 class="log-title">牌局动态</h3><div id="log" class="log" aria-live="polite"></div></aside></div>
+</section>
+<footer>纯虚拟筹码娱乐 · 无充值、提现或实物兑换<br><span>房间与筹码在本次服务运行期间保留；服务重启后需重新开房。</span></footer>
+</main><div id="toast" role="status" hidden></div><script type="module" src="/app.js"></script>
+</body></html>
