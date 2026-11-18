@@ -1,0 +1,55 @@
+(async()=>{
+const $=id=>document.getElementById(id);
+const names={zjh:'三张风暴 · 炸金花',holdem:'扑克之夜 · 德州扑克',blackjack:'BLACKJACK · 二十一点',baccarat:'BANKER · 庄闲对决'};
+const rules={zjh:['每人3张牌，轮流看牌、跟注、加注或比牌。看牌后的跟注额翻倍，最后留在桌上的人赢得底池。','底注5；基础跟注5，加注翻倍，上限80。比牌支付本人当前跟注的2倍，平手时发起者出局。牌型：豹子＞同花顺＞金花＞顺子＞对子＞单张；A23为最小顺子。最多每人10轮操作后自动摊牌；摊牌平手平分。筹码不足跟注时需弃牌。'],holdem:['每人2张底牌，搭配5张公共牌。翻牌前、翻牌、转牌、河牌依次行动，组成最强的5张牌赢取底池。','小盲5／大盲10，按钮每局轮换。支持弃牌、过牌／跟注、加注和全下；加注输入的是本轮累计投入。最小加注为上次完整加注额（至少10）；不足额全下不会重新开放已行动者的加注权。全下按贡献划分边池；平手平分，余数依座位顺序分配。'],blackjack:['大家面对同一位庄家，按座位依次要牌或停牌。尽量接近21点，超过21点即爆牌。','每局投入10–200（10的倍数）。A算1或11，J/Q/K算10。庄家不足17点要牌，软17停牌。天然21点赔3:2，普通赢局1:1，平局退回。前两张牌可双倍：追加同额筹码，只补1张后停牌；本版不含分牌、保险与投降。'],baccarat:['同一局牌、同一个结果。大家先选择庄、闲或和，全部确认后统一发牌，再按各自的选择结算。','投入10–200（10的倍数），标准第三张补牌规则。A为1，10/J/Q/K为0，总和取个位数。闲胜净赢1:1，庄胜净赢0.95:1（筹码向下取整），和局净赢8:1；开和时庄闲投入退回。']};
+let state=null,events=null,busy=false,offset=0,toastTimer;
+function toast(t){$('toast').textContent=t;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4000);}
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function cards(cs){return `<div class="cards">${cs.map(c=>c?`<span class="card ${['♥','♦'].includes(c.s)?'red':''}">${c.r}<span>${c.s}</span></span>`:'<span class="card back">♠</span>').join('')}</div>`;}
+async function api(path,data){const res=await fetch('/api/'+path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined});const r=await res.json();if(!res.ok)throw new Error(r.error||'请求失败');return r;}
+async function enter(kind){if(busy)return;busy=true;const create=kind==='create';try{const r=await api(kind,{name:$(create?'createName':'joinName').value,game:$('createGame').value,code:$('joinCode').value});history.replaceState(null,'','?room='+r.room);connect();}catch(e){toast(e.message);}finally{busy=false;}}
+$('createForm').onsubmit=e=>{e.preventDefault();enter('create');};$('joinForm').onsubmit=e=>{e.preventDefault();enter('join');};
+let reconnectTimer=null,connectGeneration=0,reconnectAttempt=0;
+function disconnect(){connectGeneration++;clearTimeout(reconnectTimer);if(events){events.onclose=null;events.close();events=null;}}
+function update(next){if(state&&next.code===state.code&&next.version<state.version)return;state=next;offset=state.serverTime-Date.now();$('status').textContent='已连接 · 实时同步';render();}
+function connect(){disconnect();const generation=connectGeneration;$('landing').hidden=true;$('room').hidden=false;$('status').textContent='正在连接牌桌';openSocket(generation);}
+function openSocket(generation){if(generation!==connectGeneration)return;const socket=new WebSocket((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/ws');events=socket;
+ socket.onopen=()=>{reconnectAttempt=0;};
+ socket.onmessage=e=>{if(generation!==connectGeneration)return;try{const msg=JSON.parse(e.data);if(msg.type==='state')update(msg.state);else if(msg.error)toast(msg.error);}catch{}};
+ socket.onclose=async()=>{if(generation!==connectGeneration)return;$('status').textContent='连接中断 · 正在重连';try{const s=await api('session');if(!s.room){disconnect();state=null;$('landing').hidden=false;$('room').hidden=true;toast('房间已关闭或已离开，请重新入座');return;}}catch{}if(generation===connectGeneration)reconnectTimer=setTimeout(()=>openSocket(generation),Math.min(1000*2**reconnectAttempt++,15000));};
+ socket.onerror=()=>socket.close();
+}
+
+async function act(action,extra={}){if(busy||!state)return;busy=true;document.querySelectorAll('#controls button').forEach(b=>b.disabled=true);try{const result=await api('action',{action,version:state.version,...extra});if(result.state)update(result.state);}catch(e){toast(e.message);try{update(await api('state'));}catch{}}finally{busy=false;if(state)renderControls();}}
+$('copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText(`${location.origin}/?room=${state.code}`);toast('邀请链接已复制，发给朋友即可加入');}catch{toast(`房间码：${state.code}，可手动发送给朋友`);}};
+$('leave').onclick=async()=>{try{await api('leave',{});disconnect();state=null;history.replaceState(null,'','/');$('landing').hidden=false;$('room').hidden=true;$('status').textContent='准备入座';}catch(e){toast(e.message);}};
+function render(){const s=state;$('roomCode').textContent=s.code;$('gameTitle').textContent=names[s.game];$('roundInfo').textContent=s.phase==='lobby'?'等待朋友入座':`第 ${s.round} 局 · ${{betting:'等待投入',playing:s.game==='holdem'?['翻牌前','翻牌','转牌','河牌'][s.stage]:'对局中',result:'本局结束'}[s.phase]}`;$('rules').textContent=rules[s.game][0];$('details').textContent=rules[s.game][1];
+ let center='';if(['zjh','holdem'].includes(s.game))center=`<div class="center-label">底池 <b>${s.pot}</b> 筹码${s.game==='holdem'?` · 本轮跟注至 ${s.currentBet}`:` · 基础跟注 ${s.baseBet}`}</div>${cards(s.board)}`;
+ if(s.game==='blackjack')center=`<div class="center-label">共用庄家</div>${cards(s.dealer)}`;
+ if(s.game==='baccarat')center=s.board.length?`<div class="center-label">闲 PLAYER</div>${cards(s.board)}<div class="center-label" style="margin-top:12px">庄 BANKER</div>${cards(s.dealer)}`:'<div class="center-label">等待所有玩家确认，统一发牌</div>';
+ $('center').innerHTML=center;
+ $('players').innerHTML=s.players.map(p=>`<div class="seat ${p.id===s.me?'me':''} ${p.id===s.turn?'turn':''} ${p.folded&&p.inHand?'folded':''}"><div class="seat-title">${esc(p.name)} ${p.id===s.me?'<b>你</b>':''} ${p.id===s.host?'<b>房主</b>':''}</div>${p.inHand&&p.cards.length?cards(p.cards):'<div class="cards" style="align-items:center;color:#99b0a4;font-size:20px">♧</div>'}<div class="seat-info">${p.chips.toLocaleString()} <span style="font-size:9px">筹码</span></div><div class="seat-state">${!p.connected?'离线 · 保留座位':s.phase==='lobby'||s.phase==='result'?p.ready?'✓ 已准备':'等待准备':!p.inHand?'下局入座':p.folded?'已弃牌':s.turn===p.id?'正在行动':s.phase==='betting'?p.done?'已确认':'选择投入':s.game==='zjh'?p.seen?'已看牌':'闷牌':s.game==='holdem'?`本轮投入 ${p.street}`:p.done?'已停牌':'等待行动'}</div>${s.phase==='result'?`<div class="winner-score">${esc(p.handName)} ${esc(p.outcome)}</div>`:''}</div>`).join('')+Array.from({length:Math.max(0,6-s.players.length)},()=>'<div class="seat empty-seat">＋ 等朋友入座</div>').join('');
+ $('result').hidden=s.phase!=='result';$('result').textContent=s.summary;
+ $('log').innerHTML=s.log.map(t=>`<div>${esc(t)}</div>`).join('');$('log').scrollTop=$('log').scrollHeight;
+ $('switcher').innerHTML=s.host===s.me&&['lobby','result'].includes(s.phase)?`<label>房主切换玩法<select id="switchGame">${Object.entries(names).map(([k,v])=>`<option value="${k}" ${s.game===k?'selected':''}>${v}</option>`).join('')}</select></label>`:'';
+ if($('switchGame'))$('switchGame').onchange=e=>act('game',{game:e.target.value});renderControls();tick();
+}
+function renderControls(){const s=state;if(!s)return;const me=s.players.find(p=>p.id===s.me),mine=s.turn===s.me,waiting=['lobby','result'].includes(s.phase),active=s.players.filter(p=>p.connected),allReady=active.length>=2&&active.every(p=>p.ready&&p.chips>=20);
+ const button=(a,text,disabled=false,primary=false)=>`<button data-action="${a}" ${disabled?'disabled':''} class="${primary?'primary':''}">${text}</button>`;
+ let caption='',html='';
+ if(waiting){caption=`${active.length} 人在线 · 所有人准备后由房主开始`;html=button('ready',me.ready?'取消准备':'我准备好了',false,true)+(s.host===s.me?button('start','开始新一局',!allReady):'')+(me.chips<20?button('refill','领取练习筹码'):'');}
+ else if(!me.inHand){caption='你已入座，等待本局结束后参与下一局。';}
+ else if(s.phase==='betting'){caption=me.done?'已确认，等待其他玩家；超时未选将自动旁观。':'请选择投入，确认后等待大家统一开牌（45秒）。';if(!me.done){html='<select id="betAmount" aria-label="投入筹码">'+[10,20,50,100,200].filter(n=>n<=me.chips).map(n=>`<option value="${n}">${n} 筹码</option>`).join('')+'</select>'+(s.game==='baccarat'?'<select id="pick" aria-label="庄闲选择"><option value="P">闲 PLAYER</option><option value="B">庄 BANKER</option><option value="T">和 TIE</option></select>':'')+button('bet','确认投入',false,true)+button('skip','本局旁观');}}
+ else if(me.folded){caption='你已出局，可以继续观看朋友的操作。';}
+ else if(s.game==='zjh'){const cost=s.baseBet*(me.seen?2:1);caption=mine?`轮到你 · 跟注 ${cost}，比牌 ${cost*2}`:'等待其他玩家行动';html=(!me.seen?button('look','看牌',false):'')+button('call',`跟注 ${cost}`,!mine||me.chips<cost,true)+button('raise','加注翻倍',!mine||me.chips<cost*2||s.baseBet>=80)+button('fold','弃牌',!mine);if(mine){const targets=s.players.filter(p=>p.inHand&&!p.folded&&p.id!==s.me);html+=`<select id="target" aria-label="比牌对手">${targets.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>`+button('compare','比牌',me.chips<cost*2);}}
+ else if(s.game==='holdem'){const call=Math.min(me.chips,Math.max(0,s.currentBet-me.street)),max=me.street+me.chips,min=Math.min(max,s.currentBet+s.minRaise);caption=mine?`轮到你 · 当前本轮投入 ${me.street} · 最低加注至 ${s.currentBet+s.minRaise}`:'等待其他玩家行动';html=button('fold','弃牌',!mine)+button('call',call?`跟注 ${call}${call===me.chips?' · 全下':''}`:'过牌',!mine,true)+`<input id="raiseAmount" aria-label="加注至" type="number" min="${min}" max="${max}" value="${min}" step="1">`+button('raise','加注至',!mine||max<=s.currentBet||me.raiseClosed)+button('allin','全下',!mine||max>s.currentBet&&me.raiseClosed);}
+ else if(s.game==='blackjack'){caption=mine?'轮到你 · 要牌接近21点，或停牌等待庄家':'等待其他玩家操作';html=button('hit','要牌',!mine,true)+button('stand','停牌',!mine)+button('double','双倍',!mine||me.cards.length!==2||me.chips<me.bet);}
+ $('controls').innerHTML=`<div class="control-caption">${caption}</div><div class="actions">${html}</div>`;
+ $('controls').querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.action;if(a==='bet')act(a,{amount:+$('betAmount').value,pick:$('pick')?.value});else if(a==='raise')act(a,{amount:+$('raiseAmount')?.value});else if(a==='allin')act(me.street+me.chips<=s.currentBet?'call':'raise',{amount:me.street+me.chips});else if(a==='compare')act(a,{target:$('target').value});else act(a);});
+}
+function tick(){if(!state?.deadline){$('timer').textContent='';return;}const n=Math.max(0,Math.ceil((state.deadline-Date.now()-offset)/1000));$('timer').textContent=`行动倒计时 ${n}s`;}
+setInterval(tick,500);
+const code=new URLSearchParams(location.search).get('room');if(code)$('joinCode').value=code.toUpperCase().slice(0,6);
+try{const s=await api('session');$('createName').value=$('joinName').value=s.name;if(s.room){history.replaceState(null,'','?room='+s.room);connect();}}catch{toast('暂时无法连接服务器，请稍后刷新');}
+
+})();
