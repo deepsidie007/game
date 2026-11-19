@@ -67,3 +67,35 @@ test('HTTP fallback keeps bot turns moving without a WebSocket', async () => {
   await mf.dispose();
  }
 });
+
+test('Custom character views persist and reach a room mate over WebSocket', async () => {
+ const mf=runtime(false);
+ const host='character-integration-host-token',guest='character-integration-guest-token';
+ const character={
+  front:'data:image/webp;base64,UklGRkwAAABXRUJQVlA4IEAAAABwAwCdASogACAAPm00lkekIyIhKAgAgA2JZQDKLoB+AABBlBAA/vCbQ//ILlhdcjX/8gP+QH/ID/+PfYwoMAAA',
+  side:'data:image/webp;base64,UklGRkYAAABXRUJQVlA4IDoAAABQAwCdASogACAAPm00lkekIyIhKAgAgA2JZQB2APwAAIMoIAD+8LA3//5BcsLrka//+bArmufmoAAA',
+  back:'data:image/webp;base64,UklGRkgAAABXRUJQVlA4IDwAAAAQAwCdASogACAAPm00lkekIyIhKAgAgA2JZQB2AACAoKAA/vkd2//+QH/+QH/+QH/8gP/+IXeyAwAAAAA='
+ };
+ try {
+  const invalid=await api(mf,host,'create','',undefined,{character:{...character,back:'data:image/svg+xml;base64,AAAA'}});
+  assert.equal(invalid.status,400);
+  const oversized=await api(mf,host,'create','',undefined,{character:{...character,back:'data:image/webp;base64,UklGRmAAAABXRUJQVlA4IFQAAADQBQCdASphAGEAPm02mUmkIyKhIKgAgA2JaW7hc+lwAAE97iLywDXU3uIvLANdTe4i8sA11N6IAP7/Pgf//8gP/8gP/8gP/5Af/8Qu9kBgAAAAAAA='}});
+  assert.equal(oversized.status,400);
+  const created=await api(mf,host,'create','',undefined,{character});
+  assert.equal(created.status,200);
+  const code=created.body.code;
+  assert.deepEqual(created.body.players[0].character,character);
+  const hostConnection=await connect(mf,host,code);
+  const guestCharacter={...character,front:character.back};
+  const guestArrives=snapshot(hostConnection.ws,s=>s.players.length===2);
+  const joined=await api(mf,guest,'join',code,undefined,{character:guestCharacter});
+  assert.equal(joined.status,200);
+  assert.deepEqual(joined.body.players[0].character,character);
+  assert.deepEqual((await guestArrives).players[1].character,guestCharacter);
+  hostConnection.ws.close();
+  const reloaded=await api(mf,guest,'poll',code);
+  assert.deepEqual(reloaded.body.players[1].character,guestCharacter);
+ } finally {
+  await mf.dispose();
+ }
+});

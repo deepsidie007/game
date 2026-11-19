@@ -5,6 +5,41 @@ const clean=(r,token)=>({...r.state,code:r.code,version:r.version,me:r.state.pla
 const validToken=token=>typeof token==='string'&&/^[\w-]{20,80}$/.test(token);
 const validCode=code=>typeof code==='string'&&/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(code);
 const tidyName=name=>String(name||'置业玩家').trim().slice(0,12)||'置业玩家';
+const characterActions=new Set(['create','join']);
+const imageLimit=6144;
+const requestLimit=3*imageLimit+4096;
+function isSmallWebP(bytes){
+ if(bytes.length<25||bytes.slice(0,4)!=='RIFF'||bytes.slice(8,12)!=='WEBP')return false;
+ const view=new DataView(Uint8Array.from(bytes,c=>c.charCodeAt(0)).buffer);
+ if(view.getUint32(4,true)!==bytes.length-8)return false;
+ const format=bytes.slice(12,16);
+ let width,height;
+ if(format==='VP8X'&&bytes.length>=30){
+  if(view.getUint8(20)&2)return false;
+  width=(view.getUint32(24,true)&0xffffff)+1;
+  height=view.getUint16(27,true)+view.getUint8(29)*65536+1;
+ }else if(format==='VP8L'&&view.getUint8(20)===47){
+  const dimensions=view.getUint32(21,true);
+  width=(dimensions&0x3fff)+1;
+  height=((dimensions>>>14)&0x3fff)+1;
+ }else if(format==='VP8 '&&bytes.length>=30&&bytes.slice(23,26)==='\x9d\x01\x2a'){
+  width=view.getUint16(26,true)&0x3fff;
+  height=view.getUint16(28,true)&0x3fff;
+ }
+ return width>0&&width<=96&&height>0&&height<=96;
+}
+function readCharacter(character){
+ if(!character||typeof character!=='object'||Array.isArray(character))return null;
+ const result={};
+ for(const angle of ['front','side','back']){
+  const image=character[angle];
+  if(typeof image!=='string'||image.length>imageLimit||!/^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(image))return null;
+  const bytes=atob(image.slice('data:image/webp;base64,'.length));
+  if(!isSmallWebP(bytes))return null;
+  result[angle]=image;
+ }
+ return result;
+}
 const ttl=7*24*60*60*1000;
 export default {
  async fetch(req,env){
@@ -13,10 +48,15 @@ export default {
   if(url.pathname==='/api/game'){
    if(req.method!=='POST')return json({error:'仅支持POST请求'},405);
    if(origin&&origin!==url.origin)return json({error:'请求来源不匹配'},403);
-   if(Number(req.headers.get('content-length')||0)>4096)return json({error:'请求过大'},413);
-   const raw=await req.text();if(raw.length>4096)return json({error:'请求过大'},413);
+   if(Number(req.headers.get('content-length')||0)>requestLimit)return json({error:'请求过大'},413);
+   const raw=await req.text();if(raw.length>requestLimit)return json({error:'请求过大'},413);
    let b;try{b=JSON.parse(raw)}catch{return json({error:'请求格式错误'},400)}
    if(!b||Array.isArray(b)||!validToken(b.token))return json({error:'玩家身份无效，请刷新页面'},400);
+   if(raw.length>4096&&!characterActions.has(b.action))return json({error:'请求过大'},413);
+   if(b.character!==undefined){
+    try{b.character=characterActions.has(b.action)&&readCharacter(b.character);}catch{b.character=null;}
+    if(!b.character)return json({error:'角色图片无效，请重新上传三视图'},400);
+   }
    if(b.action==='create'){
     for(let i=0;i<4;i++){const code=Array.from(crypto.getRandomValues(new Uint8Array(6)),x=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[x%32]).join('');
      const result=await env.ROOMS.getByName(code).fetch(new Request(req.url,{method:'POST',body:JSON.stringify({...b,code})}));
@@ -73,11 +113,11 @@ export class GameRoom extends DurableObject{
     let r=await this.load();
     if(b.action==='create'){
      if(r&&r.expiresAt>Date.now())return json({error:'房间码占用'},409);
-     r={code:b.code,state:createState(tidyName(b.name),b.token),version:0,expiresAt:Date.now()+ttl,pausedAt:null};await this.save(r);return json(clean(r,b.token));
+     r={code:b.code,state:createState(tidyName(b.name),b.token),version:0,expiresAt:Date.now()+ttl,pausedAt:null};if(b.character)r.state.players[0].character=b.character;await this.save(r);return json(clean(r,b.token));
     }
     if(!r||r.expiresAt<=Date.now())return json({error:'房间不存在或已过期，请重新创建'},404);
     let s=r.state,me=s.players.findIndex(p=>p.token===b.token),changed=false;
-    if(b.action==='join'&&me<0){if(s.status!=='lobby')throw Error('游戏已经开始');if(s.players.length>=4)throw Error('房间已满');s.players.push(person(tidyName(b.name),b.token));me=s.players.length-1;addLog(s,s.players[me].name+'加入房间');changed=true;}
+    if(b.action==='join'&&me<0){if(s.status!=='lobby')throw Error('游戏已经开始');if(s.players.length>=4)throw Error('房间已满');s.players.push(person(tidyName(b.name),b.token));me=s.players.length-1;if(b.character)s.players[me].character=b.character;addLog(s,s.players[me].name+'加入房间');changed=true;}
     else if(me<0)return json({error:'请先加入房间'},403);
     else if(b.action==='start'){if(me!==0||s.status!=='lobby')throw Error('只有房主可以开局');const n=Math.max(0,Math.min(4-s.players.length,Math.floor(Number(b.bots)||0)));start(s,n);changed=true;}
     else if(['roll','buy','skip','choose','boost','remote','bid'].includes(b.action)){action(s,me,b.action,b.value);changed=true;}
