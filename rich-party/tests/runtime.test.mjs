@@ -41,3 +41,29 @@ test('Cloudflare runtime: authoritative rooms, WebSocket snapshots, alarms, paus
  const restored=(await api(mf,tokens[0],'poll',code)).body;assert.equal(restored.code,code);assert.equal(restored.version,saved.version);assert.equal(restored.players.length,4);
  }finally{await mf.dispose();await rm(persist,{recursive:true,force:true});}
 });
+
+test('HTTP fallback keeps bot turns moving without a WebSocket', async () => {
+ const mf=runtime(false);
+ const token='http-fallback-integration-player';
+ try {
+  const {body:{code}}=await api(mf,token,'create');
+  const started=await api(mf,token,'start',code,undefined,{bots:1});
+  assert.equal(started.body.players[1].bot,true);
+  let {body:state}=await api(mf,token,'roll',code);
+  if(state.current===0)({body:state}=await api(mf,token,'skip',code));
+  assert.equal(state.current,1);
+  const initialTurns=state.turns;
+  const end=Date.now()+8000;
+  do {
+   const reply=await api(mf,token,'poll',code,'heartbeat');
+   assert.equal(reply.status,200);
+   state=reply.body;
+   if(state.current===0&&state.turns>initialTurns)break;
+   await sleep(500);
+  } while(Date.now()<end);
+  assert.equal(state.current,0);
+  assert(state.turns>initialTurns);
+ } finally {
+  await mf.dispose();
+ }
+});

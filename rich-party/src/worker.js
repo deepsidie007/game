@@ -40,13 +40,20 @@ export default {
 export class GameRoom extends DurableObject{
  constructor(ctx,env){super(ctx,env);ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
  sockets(){return this.ctx.getWebSockets().filter(ws=>ws.readyState===1&&ws.deserializeAttachment()?.token);}
+ online(r){return this.sockets().length>0||(r.pollUntil||0)>Date.now();}
  async load(){return this.ctx.storage.get('room');}
  async save(r){await this.ctx.storage.put('room',r);await this.plan(r);}
  async plan(r){
   let due=r.expiresAt;
-  if(r.state.status==='playing'&&this.sockets().length){
+  if(r.state.status==='playing'&&this.online(r)){
    if(r.pausedAt){const gap=Date.now()-r.pausedAt;r.state.deadline+=gap;if(r.state.auction){r.state.auction.ends+=gap;if(r.state.auction.nextBotAt)r.state.auction.nextBotAt+=gap;}r.pausedAt=null;await this.ctx.storage.put('room',r);}
-   const s=r.state;due=Math.min(due,s.phase==='auction'?Math.min(s.auction.ends,s.auction.nextBotAt||Infinity):s.players[s.current].bot?Date.now()+1100:s.deadline);
+   const s=r.state;
+   if(s.phase!=='auction'&&s.players[s.current].bot&&!r.botAt){
+    r.botAt=Date.now()+1100;
+    await this.ctx.storage.put('room',r);
+   }
+   due=Math.min(due,s.phase==='auction'?Math.min(s.auction.ends,s.auction.nextBotAt||Infinity):r.botAt||s.deadline);
+   if(!this.sockets().length)due=Math.min(due,r.pollUntil);
   }
   await this.ctx.storage.setAlarm(Math.max(Date.now()+50,due));
  }
@@ -75,7 +82,11 @@ export class GameRoom extends DurableObject{
     else if(b.action==='start'){if(me!==0||s.status!=='lobby')throw Error('只有房主可以开局');const n=Math.max(0,Math.min(4-s.players.length,Math.floor(Number(b.bots)||0)));start(s,n);changed=true;}
     else if(['roll','buy','skip','choose','boost','remote','bid'].includes(b.action)){action(s,me,b.action,b.value);changed=true;}
     else if(!['poll','join'].includes(b.action))throw Error('无效操作');
-    if(changed){r.version++;r.expiresAt=Date.now()+ttl;if(s.status==='playing'&&!this.sockets().length&&!r.pausedAt)r.pausedAt=Date.now();await this.save(r);this.broadcast(r);}
+    if(b.action==='poll'&&b.value==='heartbeat'&&!this.sockets().length&&s.status==='playing'){
+     r.pollUntil=Date.now()+8000;
+     await this.save(r);
+    }
+    if(changed){r.botAt=null;r.version++;r.expiresAt=Date.now()+ttl;if(s.status==='playing'&&!this.online(r)&&!r.pausedAt)r.pausedAt=Date.now();await this.save(r);this.broadcast(r);}
     return json(clean(r,b.token));
    }catch(e){return json({error:e.message||'操作失败，请重试'},400)}
   });
@@ -92,14 +103,14 @@ export class GameRoom extends DurableObject{
  }
  async webSocketClose(ws,code,reason){
   try{ws.close(code===1005?1000:code,reason)}catch{}
-  await this.ctx.blockConcurrencyWhile(async()=>{const r=await this.load();if(!r)return;const others=this.sockets().filter(x=>x!==ws);if(!others.length&&r.state.status==='playing'&&!r.pausedAt){r.pausedAt=Date.now();await this.ctx.storage.put('room',r);}await this.plan(r);});
+  await this.ctx.blockConcurrencyWhile(async()=>{const r=await this.load();if(!r)return;const others=this.sockets().filter(x=>x!==ws);if(!others.length&&!(r.pollUntil>Date.now())&&r.state.status==='playing'&&!r.pausedAt){r.pausedAt=Date.now();await this.ctx.storage.put('room',r);}await this.plan(r);});
  }
  async webSocketError(ws){await this.webSocketClose(ws,1011,'connection error');}
  async alarm(){await this.ctx.blockConcurrencyWhile(async()=>{
   const r=await this.load();if(!r)return;
   if(r.expiresAt<=Date.now()){for(const ws of this.ctx.getWebSockets())try{ws.close(1000,'room expired')}catch{}await this.ctx.storage.deleteAll();return;}
-  if(r.state.status!=='playing'||!this.sockets().length){if(r.state.status==='playing'&&!r.pausedAt){r.pausedAt=Date.now();await this.ctx.storage.put('room',r);}await this.plan(r);return;}
-  const s=r.state,due=s.phase==='auction'?Date.now()>=s.auction.ends||!!s.auction.nextBotAt&&Date.now()>=s.auction.nextBotAt:s.players[s.current].bot||Date.now()>=s.deadline;
-  if(due){automatic(s);r.version++;await this.save(r);this.broadcast(r);}else await this.plan(r);
+  if(r.state.status!=='playing'||!this.online(r)){if(r.state.status==='playing'&&!r.pausedAt){r.pausedAt=Date.now();await this.ctx.storage.put('room',r);}await this.plan(r);return;}
+  const s=r.state,due=s.phase==='auction'?Date.now()>=s.auction.ends||!!s.auction.nextBotAt&&Date.now()>=s.auction.nextBotAt:s.players[s.current].bot?Date.now()>=(r.botAt||0):Date.now()>=s.deadline;
+  if(due){automatic(s);r.botAt=null;r.version++;await this.save(r);this.broadcast(r);}else await this.plan(r);
  });}
 }

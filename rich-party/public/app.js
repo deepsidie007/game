@@ -15,12 +15,18 @@ useEffect(()=>{token.current=localStorage.getItem('rich-token')||crypto.randomUU
 async function call(action,room,value){const throwing=['roll','remote'].includes(action)&&!s?.players[s?.current]?.skip;if(throwing)PR(true);if(action!=='poll'){Q(true);E('');}try{const r=await fetch('/api/game',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,token:token.current,name:name.trim()||'置业玩家',code:room||s?.code||code.trim(),bots,value})});const d=await r.json();if(!r.ok)throw Error(d.error||'同步失败');S(old=>!old||old.code!==d.code||d.version>=old.version?d:old);currentRoom.current=d.code;sessionStorage.setItem('rich-room',d.code);if(action!=='poll')localStorage.setItem('rich-name',name.trim());return d;}catch(e){E(e.message);}finally{if(throwing)PR(false);if(action!=='poll')Q(false);}}
 const send=(a,v)=>call(a,undefined,v);
 useEffect(()=>{const id=setInterval(()=>T(Date.now()),1000);return()=>clearInterval(id)},[]);
-useEffect(()=>{if(!s?.code)return;const room=s.code;let live=true,ws=null,retry=null,ping=null,attempts=0,stopped=false;
+useEffect(()=>{if(!s?.code)return;const room=s.code;let live=true,ws=null,retry=null,ping=null,attempts=0,stopped=false,authenticated=false,polling=false;
 function connect(){if(!live||stopped||ws&&ws.readyState<2)return;U('正在连接');const protocol=location.protocol==='https:'?'wss:':'ws:';ws=new WebSocket(protocol+'//'+location.host+'/api/socket?room='+encodeURIComponent(room));
-ws.onopen=()=>{if(!live){ws.close();return;}attempts=0;U('实时联机');ws.send(JSON.stringify({type:'auth',token:token.current}));ping=setInterval(()=>{if(ws?.readyState===WebSocket.OPEN)ws.send('ping')},30000);};
-ws.onmessage=e=>{if(!live||e.data==='pong')return;try{const packet=JSON.parse(e.data);if(packet.type==='snapshot'&&packet.data.code===room){S(old=>!old||old.code!==room||packet.data.version>=old.version?packet.data:old);U('实时联机');}}catch{U('同步重试');}};
-ws.onerror=()=>U('正在重连');ws.onclose=e=>{clearInterval(ping);if(!live)return;if(e.code===4001){stopped=true;U('已在其他页面打开');E('这个房间已在另一个标签页打开，请只保留一个游戏页面。');return;}U('正在重连');retry=setTimeout(connect,Math.min(15000,1000*2**Math.min(attempts++,4)));};}
-connect();const online=()=>{if(live&&!stopped&&(!ws||ws.readyState>1)){clearTimeout(retry);connect()}};window.addEventListener('online',online);return()=>{live=false;clearTimeout(retry);clearInterval(ping);window.removeEventListener('online',online);if(ws)ws.close()};},[s?.code]);
+ws.onopen=()=>{if(!live){ws.close();return;}ws.send(JSON.stringify({type:'auth',token:token.current}));ping=setInterval(()=>{if(ws?.readyState===WebSocket.OPEN)ws.send('ping')},30000);};
+ws.onmessage=e=>{if(!live||e.data==='pong')return;try{const packet=JSON.parse(e.data);if(packet.type==='snapshot'&&packet.data.code===room){authenticated=true;attempts=0;S(old=>!old||old.code!==room||packet.data.version>=old.version?packet.data:old);U('实时联机');}}catch{U('同步重试');}};
+ws.onerror=()=>U('正在重连');ws.onclose=e=>{authenticated=false;clearInterval(ping);if(!live)return;if(e.code===4001){stopped=true;U('已在其他页面打开');E('这个房间已在另一个标签页打开，请只保留一个游戏页面。');return;}U('正在重连');retry=setTimeout(connect,Math.min(15000,1000*2**Math.min(attempts++,4)));};}
+const fallback=setInterval(async()=>{
+ if(!live||stopped||authenticated||polling)return;
+ polling=true;
+ try{const state=await call('poll',room,'heartbeat');if(state&&live&&!authenticated&&!stopped)U('备用同步');}
+ finally{polling=false;}
+},2000);
+connect();const online=()=>{if(live&&!stopped&&(!ws||ws.readyState>1)){clearTimeout(retry);connect()}};window.addEventListener('online',online);return()=>{live=false;clearInterval(fallback);clearTimeout(retry);clearInterval(ping);window.removeEventListener('online',online);if(ws)ws.close()};},[s?.code]);
 useEffect(()=>{if(active){J(at);R(false)}},[at,s?.current]);
 function focus(){const v=viewport.current,el=v?.querySelector('[data-tile="'+at+'"]');if(el&&v){v.scrollTo({left:Math.max(0,el.offsetLeft-v.clientWidth/2+el.clientWidth/2),top:Math.max(0,el.offsetTop-v.clientHeight/2+el.clientHeight/2),behavior:'smooth'});}J(at);}
 function leave(){sessionStorage.removeItem('rich-room');location.href=location.pathname;}
