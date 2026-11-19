@@ -3,6 +3,10 @@
 仓库：deepsidie007/game，分支：main，项目根目录：rich-party。
 现有 Worker：rich-party-city。
 
+## 连接状态
+
+2026-11-19 已在现有 Worker 中连接 deepsidie007/game 的 main 分支，根目录为 rich-party。连接后需再推送一次提交，才会启动首次自动构建；本次文档更新用于触发首次构建。
+
 ## 一次性连接
 
 在 Cloudflare 中选择原有 rich-party-city → Settings（设置）→ Builds（构建）→ Connect（连接），连接 GitHub 的 deepsidie007/game。
