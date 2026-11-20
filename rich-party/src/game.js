@@ -33,8 +33,18 @@ if(x.type==='resort'){p.cash+=300;p.skip=1;addLog(s,p.name+'领取度假补贴30
 if(x.type==='service')gainCard(s,p,['shield','boost','remote'][random(3)]);
 if(x.type==='chance'){const k=random(8);if(k===0){p.cash+=450;addLog(s,'奇遇：城市大奖 +450');}if(k===1){pay(s,s.current,180);addLog(s,'奇遇：房屋维修 -180');}if(k===2){p.cash+=250;addLog(s,'奇遇：商店分红 +250');}if(k===3)gainCard(s,p,'shield');if(k===4)gainCard(s,p,'remote');if(k===5)gainCard(s,p,'boost');if(k===6){const own=s.land.flatMap((l,j)=>l?.owner===s.current&&l.level<3?[j]:[]);if(own.length){const j=own[random(own.length)];s.land[j].level++;addLog(s,'奇遇：'+names[j]+'免费升级一级');}else{p.cash+=200;addLog(s,'奇遇：创业补助 +200');}}if(k===7){s.players.forEach((v,j)=>{if(j!==s.current&&!v.out)pay(s,j,80,s.current)});addLog(s,p.name+'收到其他玩家每人80的庆典礼金');}}
 next(s);}
-export function roll(s,chosen){if(old(s))return legacy.roll(s);const p=s.players[s.current];if(p.skip){p.skip=0;addLog(s,p.name+'休息一回合');next(s);return;}let faces;if(chosen!==undefined){if(!Number.isInteger(chosen)||chosen<1||chosen>6||!p.bag.remote||p.doubleReady)throw Error('遥控骰不可用，请检查卡片和点数');p.bag.remote--;faces=[chosen];addLog(s,p.name+'使用遥控骰，指定'+chosen+'点');}else{faces=[random(6)+1];if(p.doubleReady){faces.push(random(6)+1);p.doubleReady=false;}}
-s.diceFaces=faces;s.lastRoll={id:(s.lastRoll?.id||0)+1,player:s.current,faces:[...faces],at:Date.now()};s.dice=faces.reduce((a,b)=>a+b,0);const total=p.pos+s.dice;p.pos=total%40;if(total>=40){p.cash+=600;const interest=Math.floor((p.savings||0)*.1);p.savings=(p.savings||0)+interest;addLog(s,p.name+'经过起点 +600'+(interest?'，存款利息 +'+interest:''));}addLog(s,p.name+'掷出'+faces.join('+')+'点，抵达'+names[p.pos]);landOn(s);}
+export function roll(s,chosen){if(old(s)){
+ const player=s.current,from=s.players[player].pos;
+ legacy.roll(s);
+ const to=s.players[player].pos;
+ if(from!==to)s.lastRoll={id:(s.lastRoll?.id||0)+1,player,faces:[s.dice],from,to,at:Date.now()};
+ return;
+ }const p=s.players[s.current];if(p.skip){p.skip=0;addLog(s,p.name+'休息一回合');next(s);return;}let faces;if(chosen!==undefined){if(!Number.isInteger(chosen)||chosen<1||chosen>6||!p.bag.remote||p.doubleReady)throw Error('遥控骰不可用，请检查卡片和点数');p.bag.remote--;faces=[chosen];addLog(s,p.name+'使用遥控骰，指定'+chosen+'点');}else{faces=[random(6)+1];if(p.doubleReady){faces.push(random(6)+1);p.doubleReady=false;}}
+s.diceFaces=faces;
+s.dice=faces.reduce((a,b)=>a+b,0);
+const from=p.pos,total=from+s.dice;
+p.pos=total%40;
+s.lastRoll={id:(s.lastRoll?.id||0)+1,player:s.current,faces:[...faces],from,to:p.pos,at:Date.now()};if(total>=40){p.cash+=600;const interest=Math.floor((p.savings||0)*.1);p.savings=(p.savings||0)+interest;addLog(s,p.name+'经过起点 +600'+(interest?'，存款利息 +'+interest:''));}addLog(s,p.name+'掷出'+faces.join('+')+'点，抵达'+names[p.pos]);landOn(s);}
 export function decide(s,yes){if(old(s))return legacy.decide(s,yes);if(!['buy','upgrade'].includes(s.phase))throw Error('当前无需购地');const p=s.players[s.current],i=p.pos,cost=s.phase==='buy'?price(i,s):Math.floor(price(i,s)*.6);if(yes){if(p.cash<cost)throw Error('现金不足，可以跳过');p.cash-=cost;if(s.phase==='buy'){s.land[i]={owner:s.current,level:0};addLog(s,p.name+'买下'+names[i]);}else{s.land[i].level++;addLog(s,p.name+'升级了'+names[i]);}}next(s);}
 export function choose(s,option){const p=s.players[s.current];if(option==='skip'){next(s);return;}if(s.phase==='shop'){const c=cards[option];if(!c)throw Error('请选择有效道具');if((p.bag[option]||0)>=3)throw Error('这种道具最多持有3张');if(p.cash<c.cost)throw Error('现金不足');p.cash-=c.cost;gainCard(s,p,option);next(s);return;}
 if(s.phase==='bank'){if(option==='deposit'){if(p.cash<500)throw Error('存款至少需要500现金');p.cash-=500;p.savings+=500;addLog(s,p.name+'存入500，绕行起点获10%利息');}else if(option==='withdraw'){if(!p.savings)throw Error('当前没有存款');p.cash+=p.savings;addLog(s,p.name+'取出全部存款'+p.savings);p.savings=0;}else throw Error('请选择存款或取款');next(s);return;}

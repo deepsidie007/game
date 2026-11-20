@@ -2,7 +2,7 @@ import * as g from '../src/game.js';import * as old from '../src/legacy.js';impo
 let clock=Date.now();const realNow=Date.now;Date.now=()=>clock;
 const make=(n=3)=>{const s=g.createState('P0','test-map-forty-player-000');for(let i=1;i<n;i++)s.players.push(g.person('P'+i,'test-map-forty-player-00'+i));g.start(s,0);return s;};
 let s=make();assert.equal(s.land.length,40);assert.equal(g.tiles.length,40);assert.equal(g.tiles.filter(x=>x.type==='property').length,20);
-s.players[0].pos=6;g.landOn(s);assert.equal(s.phase,'bank');g.choose(s,'deposit');assert.equal(s.players[0].savings,500);s.current=0;s.phase='roll';s.players[0].pos=39;s.players[0].bag.remote=1;g.roll(s,1);assert.equal(s.players[0].savings,550);assert.equal(s.players[0].cash,3300);
+s.players[0].pos=6;g.landOn(s);assert.equal(s.phase,'bank');g.choose(s,'deposit');assert.equal(s.players[0].savings,500);s.current=0;s.phase='roll';s.players[0].pos=39;s.players[0].bag.remote=1;g.roll(s,1);assert.equal(s.players[0].savings,550);assert.deepEqual([s.lastRoll.from,s.lastRoll.to,s.lastRoll.player,s.lastRoll.faces],[39,0,0,[1]]);assert.equal(s.players[0].cash,3300);
 s=make();s.players[0].pos=4;g.landOn(s);g.choose(s,'shield');assert.equal(s.players[0].bag.shield,1);s.current=0;s.players[0].pos=1;s.land[1]={owner:1,level:2};const cash=s.players[0].cash;g.landOn(s);assert.equal(s.players[0].cash,cash);assert.equal(s.players[0].bag.shield,0);
 s=make();s.players[0].bag.boost=1;g.boost(s);g.roll(s);assert.equal(s.diceFaces.length,2);assert(s.dice>=2&&s.dice<=12);
 s=make();s.players[0].pos=10;g.landOn(s);g.choose(s,'21');assert.equal(s.players[0].pos,21);assert.equal(s.phase,'buy');g.decide(s,true);assert.equal(s.land[21].owner,0);

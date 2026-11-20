@@ -1,5 +1,6 @@
 const {useEffect,useState,useRef}=React,h=React.createElement;
 import {tiles,mapFor,price,worth,rent,cards,stations} from './game.js';
+import {useBoardWalk} from './board-motion.js';
 import {CharacterEditor,loadCharacter} from './character.js';
 import {Dice3D,diceValues} from './dice3d.js';
 const colors=['#e26b46','#598bda','#a283ca','#4d9b80'],avatars=['🦊','🐧','🐱','🐻'];
@@ -11,6 +12,23 @@ const [s,S]=useState(null),[name,N]=useState(''),[code,C]=useState(''),[bots,B]=
 const [character,setCharacter]=useState(loadCharacter);
 const token=useRef(''),viewport=useRef(null),currentRoom=useRef('');
 const map=mapFor(s),side=map.length/4+1,isNew=!s||s.land.length===40,active=s?.players[s.current],mine=s?.me===s?.current,at=active?.pos||0,sel=Math.min(selected,map.length-1),tile=map[sel],owned=s?.land[sel],currentType=map[at]?.type,locked=busy||pendingRoll||diceAnimating;
+const walks=useBoardWalk(s,map.length);
+const trail=new Set(walks.flatMap(w=>Array.from({length:w.step},(_,i)=>(w.from+i+1)%map.length)));
+const [result,setResult]=useState(null);
+const previousAuction=useRef(null);
+useEffect(()=>{
+ const previous=previousAuction.current;
+ previousAuction.current=s?.auction?{code:s.code,tile:s.auction.tile}:null;
+ if(s?.auction){setResult(null);return;}
+ if(previous&&previous.code===s?.code){
+  setResult({tile:previous.tile,owner:s.land[previous.tile]?.owner});
+ }
+},[s?.code,s?.auction?.tile]);
+useEffect(()=>{
+ if(!result)return;
+ const timer=setTimeout(()=>setResult(null),3000);
+ return()=>clearTimeout(timer);
+},[result]);
 const shownFaces=pendingRoll&&active?.doubleReady&&diceValues(s).length<2?[diceValues(s)[0],2]:diceValues(s);
 useEffect(()=>{if(!s?.lastRoll?.id||Math.abs(Date.now()-s.lastRoll.at)>5000)return;DA(true);const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;const timer=setTimeout(()=>DA(false),reduced?200:1250);return()=>clearTimeout(timer)},[s?.lastRoll?.id]);
 useEffect(()=>{token.current=localStorage.getItem('rich-token')||crypto.randomUUID();localStorage.setItem('rich-token',token.current);N(localStorage.getItem('rich-name')||'');const q=new URLSearchParams(location.search).get('room');if(q)C(q);const saved=sessionStorage.getItem('rich-room');if(saved&&!q)call('poll',saved);},[]);
@@ -33,6 +51,27 @@ useEffect(()=>{if(active){J(at);R(false)}},[at,s?.current]);
 function focus(){const v=viewport.current,el=v?.querySelector('[data-tile="'+at+'"]');if(el&&v){v.scrollTo({left:Math.max(0,el.offsetLeft-v.clientWidth/2+el.clientWidth/2),top:Math.max(0,el.offsetTop-v.clientHeight/2+el.clientHeight/2),behavior:'smooth'});}J(at);}
 function leave(){sessionStorage.removeItem('rich-room');location.href=location.pathname;}
 async function copy(){try{await navigator.clipboard.writeText(location.origin+'/?room='+s.code);K(true);setTimeout(()=>K(false),2000)}catch{E('房间码：'+s.code+'，请手动复制分享')}}
+function piece(p,j,angle,mirrored){
+ return p.character?h('img',{src:p.character[angle],alt:p.name,className:mirrored?'mirrored':undefined}):avatars[j];
+}
+function auctionStage(){
+ const a=s?.auction;
+ if(!a&&!result)return null;
+ if(a&&(diceAnimating||walks.length)&&Math.ceil((a.ends-tick)/1000)>4)return null;
+ const tile=map[(a||result).tile];
+ const seconds=a?Math.max(0,Math.ceil((a.ends-tick)/1000)):0;
+ const leader=a?.leader??result?.owner??-1;
+ const nextBid=a?a.bid+50:0;
+ const me=s.players[s.me];
+ return h('section',{className:'auction-stage'+(a&&seconds<=3?' final-seconds':''),'aria-label':'城市拍卖台'},
+  h('div',{className:'auction-stage-head'},h('b',null,'城市拍卖台'),a&&h('span',null,seconds+' 秒')),
+  h('h2',null,tile.icon+' '+tile.name),
+  a?h(React.Fragment,null,
+   h('div',{key:a.bid,className:'auction-paddle',role:'status'},leader>=0?s.players[leader].name+' 举牌 · ₵'+a.bid:'起拍 ₵'+nextBid),
+   h('button',{type:'button',className:'primary',disabled:busy||!me||me.out||leader===s.me||me.cash<nextBid||!seconds,onClick:()=>send('bid')},leader===s.me?'你已领先':'举牌加价至 ₵'+nextBid)
+  ):h('div',{className:'auction-paddle',role:'status'},leader>=0?'🔨 成交 · '+s.players[leader].name+' 拍得地产':'🔨 流拍 · 无人出价')
+ );
+}
 const btn=(text,a,v,disabled=false,cls='primary')=>h('button',{className:cls,disabled:locked||disabled,onClick:()=>send(a,v)},text);
 function Actions(){if(!s||s.status!=='playing')return null;const disabled=!mine,phase=s.phase;const seconds=Math.min(60,Math.max(0,Math.ceil((s.deadline-tick)/1000)));let content;
 if(phase==='auction'){const a=s.auction,nextBid=a.bid+50,leader=a.leader>=0?s.players[a.leader].name:'暂无出价',can=s.me>=0&&!s.players[s.me].out&&a.leader!==s.me&&s.players[s.me].cash>=nextBid;return h('div',{className:'actions auction-panel'},h('div',{className:'turn-label'},h('b',null,'🔨 全员限时拍卖'),h('small',null,seconds+'秒')),h('h3',null,map[a.tile].name),h('p',null,'市场价 ₵'+price(a.tile,s)+' · '+leader),h('strong',{className:'bid-price'},a.leader>=0?'当前出价 ₵'+a.bid:'起拍 ₵'+nextBid),btn(a.leader===s.me?'你已领先':'加价至 ₵'+nextBid,'bid',null,!can),h('small',{className:'muted'},'每次+50，倒计时结束由最高出价者获得地产'));}
@@ -52,8 +91,17 @@ h('div',{className:'layout'},h('section',{className:'board-wrap'},h('div',{class
 h('div',{className:'map-viewport '+(overview?'overview':''),ref:viewport},h('div',{className:'board',style:{'--side':side}},map.map((x,i)=>{const [r,c]=coordinate(i,side),l=s?.land[i];
 const [previousRow,previousColumn]=coordinate((i+map.length-1)%map.length,side);
 const angle=i===0?'front':r>previousRow?'front':r<previousRow?'back':'side';
-const mirrored=angle==='side'&&c<previousColumn;return h('button',{key:i,'data-tile':i,className:'tile '+(x.type!=='property'?'special ':'')+(s&&at===i?'selected ':'')+(sel===i?'inspecting':''),onClick:()=>J(i),style:{gridRow:r,gridColumn:c,'--tile-color':l?colors[l.owner]:['#8faf90','#91afc4','#d9927d','#baa0c8'][Math.floor(i/(map.length/4))]}},h('div',{className:'strip'}),h('span',{className:'tile-number'},String(i+1).padStart(2,'0')),h('span',{className:'tile-icon'},x.icon),h('b',null,x.name),h('small',null,x.type==='property'?(l?'★'.repeat(l.level+1):'₵'+price(i,s)):labels[x.type]),h('div',{className:'pieces'},s?.players.map((p,j)=>p.pos===i&&!p.out&&h('span',{key:j,style:{background:colors[j]},title:p.name,className:p.character?'custom-piece':undefined},p.character?h('img',{src:p.character[angle],alt:p.name,className:mirrored?'mirrored':undefined}):avatars[j]))));}),
-h('div',{className:'board-center',style:{gridColumn:'2/'+side,gridRow:'2/'+side}},h('div',{className:'tiny-tag'},'EXPLORE THE CITY. MAKE YOUR MOVE.'),h('div',{className:'center-title'},'欢乐',h('span',null,'城市冒险')),h('p',null,'每一站，都有新玩法'),h('div',{className:'dice-tray'},h('div',{className:'dice-row'},shownFaces.map((n,i)=>h(Dice3D,{key:i,value:n,index:i,pending:pendingRoll,rollId:s?.lastRoll?.id||0,rolledAt:s?.lastRoll?.at||0}))),h('div',{className:'dice-outcome',role:'status','aria-live':'polite'},pendingRoll||diceAnimating?'骰子滚动中…':s?.lastRoll?'本次点数：'+shownFaces.join(' + ')+(shownFaces.length>1?' = '+shownFaces.reduce((a,b)=>a+b,0):''):'掷出好运，开启城市冒险')),h('div',{className:'center-status'},s?.status==='playing'?'第 '+(Math.floor(s.turns/s.players.length)+1)+' / '+(isNew?30:20)+' 轮 · '+active.name:s?.status==='finished'?'本局已结束':'点击棋盘地点，发现更多玩法'),
+const mirrored=angle==='side'&&c<previousColumn;return h('button',{key:i,'data-tile':i,className:'tile '+(x.type!=='property'?'special ':'')+(s&&at===i?'selected ':'')+(sel===i?'inspecting':'')+(trail.has(i)?' walked-tile':''),onClick:()=>J(i),style:{gridRow:r,gridColumn:c,'--tile-color':l?colors[l.owner]:['#8faf90','#91afc4','#d9927d','#baa0c8'][Math.floor(i/(map.length/4))]}},h('div',{className:'strip'}),h('span',{className:'tile-number'},String(i+1).padStart(2,'0')),h('span',{className:'tile-icon'},x.icon),h('b',null,x.name),h('small',null,x.type==='property'?(l?'★'.repeat(l.level+1):'₵'+price(i,s)):labels[x.type]),h('div',{className:'pieces'},s?.players.map((p,j)=>p.pos===i&&!p.out&&!walks.some(w=>w.index===j)&&h('span',{key:j,style:{background:colors[j]},title:p.name,className:p.character?'custom-piece':undefined},piece(p,j,angle,mirrored)))));}),
+walks.map(w=>{
+ const [row,col]=coordinate(w.tile,side);
+ const [prevRow,prevCol]=coordinate((w.tile+map.length-1)%map.length,side);
+ const angle=w.step===0&&w.tile===0?'front':row>prevRow?'front':row<prevRow?'back':'side';
+ const player=s.players[w.index];
+ return h('div',{key:w.id+'-'+w.step,className:'board-walker'+(w.step?' taking-step':''),style:{
+  gridRow:row,gridColumn:col,'--step-x':prevCol-col,'--step-y':prevRow-row,'--piece-color':colors[w.index]
+ }},h('span',{className:player.character?'custom-piece':undefined},piece(player,w.index,angle,angle==='side'&&col<prevCol)));
+}),
+h('div',{className:'board-center',style:{gridColumn:'2/'+side,gridRow:'2/'+side}},auctionStage(),h('div',{className:'tiny-tag'},'EXPLORE THE CITY. MAKE YOUR MOVE.'),h('div',{className:'center-title'},'欢乐',h('span',null,'城市冒险')),h('p',null,'每一站，都有新玩法'),h('div',{className:'dice-tray'},h('div',{className:'dice-row'},shownFaces.map((n,i)=>h(Dice3D,{key:i,value:n,index:i,pending:pendingRoll,rollId:s?.lastRoll?.id||0,rolledAt:s?.lastRoll?.at||0}))),h('div',{className:'dice-outcome',role:'status','aria-live':'polite'},pendingRoll||diceAnimating?'骰子滚动中…':s?.lastRoll?'本次点数：'+shownFaces.join(' + ')+(shownFaces.length>1?' = '+shownFaces.reduce((a,b)=>a+b,0):''):'掷出好运，开启城市冒险')),h('div',{className:'center-status'},s?.status==='playing'?'第 '+(Math.floor(s.turns/s.players.length)+1)+' / '+(isNew?30:20)+' 轮 · '+active.name:s?.status==='finished'?'本局已结束':'点击棋盘地点，发现更多玩法'),
 h('div',{className:'location-spotlight'},h('span',{className:'spot-icon'},tile.icon),h('div',{className:'eyebrow'},labels[tile.type]+' / '+String(sel+1).padStart(2,'0')),h('h2',null,tile.name),h('p',null,tile.type==='property'?(owned?s.players[owned.owner].name+'持有 · '+(owned.level+1)+'级建筑 · 租金₵'+(isNew?rent(s,sel):Math.floor(price(sel,s)*.28)*(owned.level+1)):'地价 ₵'+price(sel,s)+' · 点击到访可购买'):tile.hint),h('p',{className:'location-description'},isNew?instructions[tile.type]:'继续按照旧版规则游玩，新建房间可体验扩展地图。')),
 h('div',{className:'venue-grid'},(isNew?[4,6,8,10,13,19,20,36]:[3,6,12,18]).map(i=>h('button',{key:i,className:'venue-chip '+(sel===i?'active':''),onClick:()=>J(i)},h('span',null,map[i].icon),map[i].name))),h('small',{className:'muted'},'地点操作仅在玩家实际抵达时开放')))),h('div',{className:'board-footer'},h('span',null,'🟩 地产投资'),h('span',null,'🔨 全员竞价'),h('span',null,'🎒 道具策略'),h('span',null,'🚇 街区传送'))),
 h('aside',null,h(React.Fragment,null,h('section',{className:'card room-card'},h('div',{className:'room-head'},h('div',null,h('div',{className:'eyebrow'},map.length+' TILE CITY / YOUR ROOM'),h('h2',null,s.code)),h('button',{className:'outline',onClick:copy},copied?'已复制':'邀请朋友 ↗')),h('div',{className:'players'},s.players.map((p,i)=>h('div',{key:i,className:'player '+(s.current===i&&s.status==='playing'?'current ':'')+(p.out?'eliminated':'')},h('div',{className:'avatar',style:{background:colors[i]+'22'}},p.character?h('img',{src:p.character.front,alt:''}):avatars[i]),h('div',null,h('b',null,p.name+(i===s.me?' · 你':'')),h('small',null,p.out?'已破产':(p.bot?'电脑玩家':i===0?'房主':'真人玩家')+(isNew?' · 存款'+(p.savings||0):'')),isNew&&h('small',{className:'bag'},'🛡'+(p.bag?.shield||0)+' 🎲'+(p.bag?.boost||0)+' 🎯'+(p.bag?.remote||0))),h('strong',null,'₵'+p.cash.toLocaleString(),h('small',null,'资产 '+worth(s,i)))))),
