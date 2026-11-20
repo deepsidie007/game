@@ -131,3 +131,21 @@ header{height:68px}.page-heading{padding:18px 0}.page-heading h1{font-size:27px;
 }
 .auction-stage.final-seconds .auction-stage-head span { color:#ffa976; font-weight:800; }
 @keyframes paddle-up { from { opacity:.2; transform:translateY(9px) scale(.94); } }
+
+.tile-owner {
+  position:absolute;
+  top:0;
+  right:0;
+  z-index:1;
+  max-width:78%;
+  padding:1px 3px 1px 4px;
+  overflow:hidden;
+  border-radius:0 0 0 5px;
+  color:#142119;
+  background:var(--tile-color);
+  font-size:clamp(6px,1.15cqw,11px);
+  font-weight:700;
+  line-height:1.15;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
